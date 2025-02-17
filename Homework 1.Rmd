@@ -15,22 +15,63 @@ library(tidyverse)
 # Problem 1 
 
 ```{r}
-training <- read_csv("housing_training.csv")
+training_dat <- read_csv("housing_training.csv")
 test <- read_csv("housing_test.csv")
 ```
 
 ```{r}
 set.seed(123)
-ctrl1 <- trainControl(method = "cv", number = 10)
-lasso.fit <- train(Sale_Price ~ .,
-                   data = training,
-                   method = "glmnet",
-                   tuneGrid = expand.grid(alpha = 1, 
-                                          lambda = exp(seq(6, 0, length = 100))),
-                   trControl = ctrl1)
+x <- model.matrix(Sale_Price ~ ., training_dat)[,-1]
+y <- training_dat[, "Sale_Price", drop = TRUE]
 
-plot(lasso.fit, xTrans = log)
-lasso.fit$bestTune
+x_test <- model.matrix(~ ., data = test)[, -1]
+
+cv.lasso <- cv.glmnet(x,y,
+                      alpha = 1, 
+                      lambda = exp(seq(6, -5, length = 100)))
+
+
+plot(cv.lasso)
+
+plot_glmnet(cv.lasso$glmnet.fit)
+
+cv.lasso$lambda.min
+
+cv.lasso$lambda.1se
+
+predict(cv.lasso, s = "lambda.min", type = "coefficients")
+predict(cv.lasso, s = "lambda.1se", type = "coefficients")
+
+lasso_pred <- predict(cv.lasso, newx = model.matrix(Sale_Price ~ ., test)[,-1], s = "lambda.min", type = "response")
+
+mean((lasso_pred - test[, "Sale_Price", drop = TRUE])^2)
 ```
 
-The 
+The selected tuning parameter is 54.59815. If considering the 1se rule, the selected tuning parameter is 403.4288. 
+
+The 1se model includes 37 predictors, while the minimum lambda model includes 38 predictors. 
+
+# Problem 2 
+
+```{r}
+ctrl1 <- trainControl(method = "cv", number = 10)
+
+set.seed(2)
+enet.fit <- train(Sale_Price ~ .,
+                  data = training_dat,
+                  method = "glmnet",
+                  tuneGrid = expand.grid(alpha = seq(0, 1, length = 40), 
+                                         lambda = exp(seq(6, -5, length = 100))),
+                  trControl = ctrl1)
+enet.fit$bestTune
+
+myCol <- rainbow(25)
+myPar <- list(superpose.symbol = list(col = myCol),
+              superpose.line = list(col = myCol))
+
+plot(enet.fit, par.settings = myPar, xTrans = log)
+
+
+coef(enet.fit$finalModel, enet.fit$bestTune$lambda)
+```
+
