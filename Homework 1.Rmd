@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(glmnet)
 library(caret)
 library(tidyverse)
+library(plotmo) 
 ```
 
 # Problem 1 
@@ -20,11 +21,11 @@ test <- read_csv("housing_test.csv")
 ```
 
 ```{r}
-set.seed(123)
+set.seed(10)
 x <- model.matrix(Sale_Price ~ ., training_dat)[,-1]
-y <- training_dat[, "Sale_Price", drop = TRUE]
-
-x_test <- model.matrix(~ ., data = test)[, -1]
+y <- training_dat$Sale_Price
+x2 <- model.matrix(Sale_Price ~ .,test)[, -1] 
+y2 <- test$Sale_Price
 
 cv.lasso <- cv.glmnet(x,y,
                       alpha = 1, 
@@ -42,28 +43,64 @@ cv.lasso$lambda.1se
 predict(cv.lasso, s = "lambda.min", type = "coefficients")
 predict(cv.lasso, s = "lambda.1se", type = "coefficients")
 
-lasso_pred <- predict(cv.lasso, newx = model.matrix(Sale_Price ~ ., test)[,-1], s = "lambda.min", type = "response")
+lasso_pred <- predict(cv.lasso, newx = model.matrix(Sale_Price ~ ., test)[,-1], 
+                      s = "lambda.min", type = "response")
 
-mean((lasso_pred - test[, "Sale_Price", drop = TRUE])^2)
+mse <- mean((lasso_pred - test[, "Sale_Price", drop = TRUE])^2)
+rmse <- sqrt(mean((lasso_pred - test[, "Sale_Price", drop = TRUE])^2))
 ```
 
-The selected tuning parameter is 54.59815. If considering the 1se rule, the selected tuning parameter is 403.4288. 
+The selected tuning parameter is `r cv.lasso$lambda.min`. If considering the 1se rule, the selected tuning parameter is `r cv.lasso$lambda.1se`. 
 
-The 1se model includes 37 predictors, while the minimum lambda model includes 38 predictors. 
+The 1se model includes 22 predictors, while the minimum lambda model includes 23 predictors. 
+The mean squared error for the data is `r mse` and the root mean squared error is `r rmse`.
+
+
+
+```{r}
+set.seed(10)
+ctrl1 <- trainControl(method = "cv", number = 10)
+lasso.fit <- train(x,y,
+                   data = training_dat,
+                   method = "glmnet",
+                   tuneGrid = expand.grid(alpha = 1, 
+                                          lambda = exp(seq(6, 0, length = 100))),
+                   trControl = ctrl1)
+plot(lasso.fit, xTrans = log)
+
+lasso.fit$bestTune
+
+minrmse <- min(lasso.fit$results$RMSE)
+sdrmse <- sd(lasso.fit$results$RMSE)
+
+
+rmse_1se <- minrmse + sdrmse
+
+lambda_1se <- max(lasso.fit$results$lambda[lasso.fit$results$RMSE <= rmse_1se])
+
+
+```
 
 # Problem 2 
 
-```{r}
-ctrl1 <- trainControl(method = "cv", number = 10)
+Yes 1se is applicable here because cross-validation results provide the error curves for multiple values of lambda. 
 
-set.seed(2)
-enet.fit <- train(Sale_Price ~ .,
+```{r}
+set.seed(10)
+ctrl1 <- trainControl(method = "cv", number = 10)
+enet.fit <- train(x, y,
                   data = training_dat,
                   method = "glmnet",
-                  tuneGrid = expand.grid(alpha = seq(0, 1, length = 40), 
-                                         lambda = exp(seq(6, -5, length = 100))),
+                  tuneGrid = expand.grid(alpha = seq(0, 1, length = 25), 
+                                         lambda = exp(seq(6,0, length = 100))),
                   trControl = ctrl1)
 enet.fit$bestTune
+
+enet_pred <-  predict(enet.fit, 
+                      newdata = model.matrix(Sale_Price ~ ., test)[,-1])
+
+mse_enet <- mean((enet_pred - test$Sale_Price)^2)
+rmse_enet <- sqrt(mean((enet_pred - test$Sale_Price)^2))
 
 myCol <- rainbow(25)
 myPar <- list(superpose.symbol = list(col = myCol),
@@ -71,7 +108,53 @@ myPar <- list(superpose.symbol = list(col = myCol),
 
 plot(enet.fit, par.settings = myPar, xTrans = log)
 
+minrmse <- min(enet.fit$results$RMSE)
+sdrmse <- sd(enet.fit$results$RMSE)
 
-coef(enet.fit$finalModel, enet.fit$bestTune$lambda)
+
+rmse_1se <- minrmse + sdrmse
+
+lambda_1se <- max(enet.fit$results$lambda[enet.fit$results$RMSE <= rmse_1se])
+
+enet.fit_1se <- train(x, y,
+                  data = training_dat,
+                  method = "glmnet",
+                  tuneGrid = expand.grid(alpha = enet.fit$bestTune$alpha, 
+                                         lambda = lambda_1se),
+                  trControl = ctrl1)
+
+enet_1se_pred <-  predict(enet.fit_1se, 
+                          newdata = model.matrix(Sale_Price ~ ., test)[,-1])
+
+mse_enet1se <- mean((enet_1se_pred - test$Sale_Price)^2)
+rmse_enet1se <- sqrt(mean((enet_1se_pred - test$Sale_Price)^2))
+
 ```
+
+The tuning parameter for elastic net `r enet.fit$bestTune$lambda`, with an rmse of `r rmse_enet`. With the 1se rule, the tuning parameter is `r enet.fit_1se$bestTune$lambda` with an rmse of `r rmse_enet1se`. 
+
+
+# Problem 3
+
+
+```{r}
+set.seed(10)
+pls_fit <- train(x, y,
+                 method = "pls",
+                 tuneGrid = data.frame(ncomp = 1:25),
+                 trControl = ctrl1,
+                 preProcess = c("center", "scale"))
+predy2_pls2 <- predict(pls_fit, newdata = x2)
+
+coefficients <- coef(pls_fit$finalModel, ncomp = pls_fit$bestTune$ncomp)
+
+mean((y2 - predy2_pls2)^2)
+
+
+
+ggplot(pls_fit, highlight = TRUE)
+```
+
+There are 12 components included in this model 
+
 
