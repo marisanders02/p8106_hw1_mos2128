@@ -13,7 +13,7 @@ library(tidyverse)
 library(plotmo) 
 ```
 
-# Problem 1 
+# A) 
 
 ```{r}
 training_dat <- read_csv("housing_training.csv")
@@ -26,36 +26,7 @@ x <- model.matrix(Sale_Price ~ ., training_dat)[,-1]
 y <- training_dat$Sale_Price
 x2 <- model.matrix(Sale_Price ~ .,test)[, -1] 
 y2 <- test$Sale_Price
-
-cv.lasso <- cv.glmnet(x,y,
-                      alpha = 1, 
-                      lambda = exp(seq(6, -5, length = 100)))
-
-
-plot(cv.lasso)
-
-plot_glmnet(cv.lasso$glmnet.fit)
-
-cv.lasso$lambda.min
-
-cv.lasso$lambda.1se
-
-predict(cv.lasso, s = "lambda.min", type = "coefficients")
-predict(cv.lasso, s = "lambda.1se", type = "coefficients")
-
-lasso_pred <- predict(cv.lasso, newx = model.matrix(Sale_Price ~ ., test)[,-1], 
-                      s = "lambda.min", type = "response")
-
-mse <- mean((lasso_pred - test[, "Sale_Price", drop = TRUE])^2)
-rmse <- sqrt(mean((lasso_pred - test[, "Sale_Price", drop = TRUE])^2))
 ```
-
-The selected tuning parameter is `r cv.lasso$lambda.min`. If considering the 1se rule, the selected tuning parameter is `r cv.lasso$lambda.1se`. 
-
-The 1se model includes 22 predictors, while the minimum lambda model includes 23 predictors. 
-The mean squared error for the data is `r mse` and the root mean squared error is `r rmse`.
-
-
 
 ```{r}
 set.seed(10)
@@ -66,24 +37,48 @@ lasso.fit <- train(x,y,
                    tuneGrid = expand.grid(alpha = 1, 
                                           lambda = exp(seq(6, 0, length = 100))),
                    trControl = ctrl1)
-plot(lasso.fit, xTrans = log)
 
 lasso.fit$bestTune
 
+lasso_predict <- predict(lasso.fit,newdata = model.matrix(Sale_Price ~ ., test)[,-1])
+mse_lasso <- mean((lasso_predict - test$Sale_Price)^2)
+rmse_lasso <- sqrt(mean((lasso_predict - test$Sale_Price)^2))
+
+lasso_coef <- coef(lasso.fit$finalModel, s = lasso.fit$bestTune$lambda)
+```
+
+The lasso model fit with the best tune parameter has 23 parameters. The error is `r mse_lasso` and the rmse is `r rmse_lasso`. 
+
+```{r}
+set.seed(10)
 minrmse <- min(lasso.fit$results$RMSE)
 sdrmse <- sd(lasso.fit$results$RMSE)
-
-
 rmse_1se <- minrmse + sdrmse
 
 lambda_1se <- max(lasso.fit$results$lambda[lasso.fit$results$RMSE <= rmse_1se])
 
+lasso.fit1se <- train(x,y, 
+                   data = training_dat, 
+                   method = "glmnet", 
+                   tuneGrid = expand.grid(alpha = 1, 
+                                          lambda = lambda_1se),
+                   trControl = ctrl1)
+lasso.fit1se$bestTune
 
+lasso_predict1se <- predict(lasso.fit1se,newdata = model.matrix(Sale_Price ~ ., test)[,-1])
+
+
+mse_lasso1se <- mean((lasso_predict - test$Sale_Price)^2)
+rmse_lasso1se <- sqrt(mean((lasso_predict - test$Sale_Price)^2))
+
+lasso_coef1se <- coef(lasso.fit1se$finalModel, s = lasso.fit1se$bestTune$lambda)
 ```
 
-# Problem 2 
+The lasso model fit with the 1se paramter has 23 predictors. The error is `r mse_lasso1se` and the rmse is `r rmse_lasso1se`. 
 
-Yes 1se is applicable here because cross-validation results provide the error curves for multiple values of lambda. 
+# B)
+
+Yes 1se is applicable here because cross-validation results provide the error curves for multiple values of lambda. The 1SE rule selects the most regularized model within one standard error of the minimum cross-validation error, favoring simpler models.
 
 ```{r}
 set.seed(10)
@@ -91,13 +86,14 @@ ctrl1 <- trainControl(method = "cv", number = 10)
 enet.fit <- train(x, y,
                   data = training_dat,
                   method = "glmnet",
-                  tuneGrid = expand.grid(alpha = seq(0, 1, length = 25), 
+                  tuneGrid = expand.grid(alpha = seq(0, 1, length = 21), 
                                          lambda = exp(seq(6,0, length = 100))),
                   trControl = ctrl1)
 enet.fit$bestTune
 
 enet_pred <-  predict(enet.fit, 
                       newdata = model.matrix(Sale_Price ~ ., test)[,-1])
+enet_coef <- coef(enet.fit$finalModel, s = enet.fit$bestTune$lambda)
 
 mse_enet <- mean((enet_pred - test$Sale_Price)^2)
 rmse_enet <- sqrt(mean((enet_pred - test$Sale_Price)^2))
@@ -108,14 +104,19 @@ myPar <- list(superpose.symbol = list(col = myCol),
 
 plot(enet.fit, par.settings = myPar, xTrans = log)
 
+
+```
+
+The tuning parameter for elastic net with minimum lambda is `r enet.fit$bestTune`. The model kept 23 parameters. The mse is `r mse_enet` and the rmse is `r rmse_enet`. 
+
+```{r}
 minrmse <- min(enet.fit$results$RMSE)
 sdrmse <- sd(enet.fit$results$RMSE)
-
 
 rmse_1se <- minrmse + sdrmse
 
 lambda_1se <- max(enet.fit$results$lambda[enet.fit$results$RMSE <= rmse_1se])
-
+set.seed(10)
 enet.fit_1se <- train(x, y,
                   data = training_dat,
                   method = "glmnet",
@@ -129,13 +130,13 @@ enet_1se_pred <-  predict(enet.fit_1se,
 mse_enet1se <- mean((enet_1se_pred - test$Sale_Price)^2)
 rmse_enet1se <- sqrt(mean((enet_1se_pred - test$Sale_Price)^2))
 
+enet_coef1se <- coef(enet.fit_1se$finalModel, s = enet.fit_1se$bestTune$lambda)
+
 ```
 
-The tuning parameter for elastic net `r enet.fit$bestTune$lambda`, with an rmse of `r rmse_enet`. With the 1se rule, the tuning parameter is `r enet.fit_1se$bestTune$lambda` with an rmse of `r rmse_enet1se`. 
+The tuning parameter for elastic net with1SE RULE is `r enet.fit_1se$bestTune`. The model kept 23 parameters. The mse is `r mse_enet1se` and the rmse is `r rmse_enet1se`. 
 
-
-# Problem 3
-
+# C)
 
 ```{r}
 set.seed(10)
@@ -148,13 +149,44 @@ predy2_pls2 <- predict(pls_fit, newdata = x2)
 
 coefficients <- coef(pls_fit$finalModel, ncomp = pls_fit$bestTune$ncomp)
 
-mean((y2 - predy2_pls2)^2)
+mse_pls <- mean((y2 - predy2_pls2)^2)
 
+rmse_pls <- sqrt(mean((y2 - predy2_pls2)^2))
 
 
 ggplot(pls_fit, highlight = TRUE)
 ```
 
-There are 12 components included in this model 
+There are 12 components included in this model.  The mse is `r mse_pls` and the rmse is `r rmse_pls`
 
 
+# D) 
+
+```{r}
+set.seed(10)
+resamp <- resamples(list(enet = enet.fit, enet1se = enet.fit_1se, lasso = lasso.fit, lasso1se = lasso.fit1se))
+
+summary(resamp)
+
+
+parallelplot(resamp, metric = "RMSE")
+
+bwplot(resamp, metric = "RMSE") 
+```
+
+It seems like elastic net is the best model. It has the smallest median rmse when comparing all the models. However, elastic net and lasso are both fairly close in rmse. 
+
+E) 
+
+```{r}
+set.seed(10)
+cv.lasso <- cv.glmnet(x, y, 
+                      alpha = 1, 
+                      lambda = exp(seq(6, 0, length = 100)))
+
+cv.lasso$lambda.min
+lasso.fit$bestTune$lambda
+
+```
+
+Using `glmnet` to train the model, the selected tuning parameter is `r cv.lasso$lambda.min`, while using `caret` got the result that the selected tuning parameter is `r lasso.fit$bestTune$lambda`. They are quite different in their results. 
